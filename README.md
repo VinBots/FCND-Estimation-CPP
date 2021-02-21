@@ -73,6 +73,10 @@ Project outline:
  - [Step 5: Closed Loop + GPS Update](#step-5-closed-loop--gps-update)
  - [Step 6: Adding Your Controller](#step-6-adding-your-controller)
 
+### Theory
+
+Most of the theory and implementation details are included in this [reference file](assets/Estimation_for_Quadrotors.pdf).
+Udacity courses' notes are included in [here](estimation.md).
 
 
 ### Step 1: Sensor Noise ###
@@ -81,7 +85,10 @@ For the controls project, the simulator was working with a perfect set of sensor
 
 1. Run the simulator in the same way as you have before
 
+**Comment:** done
+
 2. Choose scenario `06_NoisySensors`.  In this simulation, the interest is to record some sensor data on a static quad, so you will not see the quad move.  You will see two plots at the bottom, one for GPS X position and one for The accelerometer's x measurement.  The dashed lines are a visualization of a single standard deviation from 0 for each signal. The standard deviations are initially set to arbitrary values (after processing the data in the next step, you will be adjusting these values).  If they were set correctly, we should see ~68% of the measurement points fall into the +/- 1 sigma bound.  When you run this scenario, the graphs you see will be recorded to the following csv files with headers: `config/log/Graph1.txt` (GPS X data) and `config/log/Graph2.txt` (Accelerometer X data).
+
 
 3. Process the logged files to figure out the standard deviation of the the GPS X signal and the IMU Accelerometer X signal.
 
@@ -92,6 +99,29 @@ For the controls project, the simulator was working with a perfect set of sensor
 ***Success criteria:*** *Your standard deviations should accurately capture the value of approximately 68% of the respective measurements.*
 
 NOTE: Your answer should match the settings in `SimulatedSensors.txt`, where you can also grab the simulated noise parameters for all the other sensors.
+
+
+**Comments:**
+I implemented the following code to extract the standard deviation `MeasuredStdDev_GPSPosXY` and `MeasuredStdDev_AccelXY`
+
+```
+    import numpy as np
+    from numpy import genfromtxt
+    data1 = genfromtxt('graph1.txt', delimiter=',')
+    data2 = genfromtxt('graph2.txt', delimiter=',')
+	 my_data1 = data1.T[1][1:]
+	 my_data2= data2.T[1][1:]
+	 sig1 = np.sqrt(np.var(my_data1))
+	 sig2 = np.sqrt(np.var(my_data2))
+```
+
+MeasuredStdDev_GPSPosXY: 0.6746656010610669
+
+MeasuredStdDev_AccelXY: 0.5086569784553859
+
+These values are matching the values in SimulatdSensors.txt [0.7 and 0.5]
+
+![sim11](assets/simulation6.png)
 
 
 ### Step 2: Attitude Estimation ###
@@ -113,15 +143,35 @@ In the screenshot above the attitude estimation using linear scheme (left) and u
 
 **Hint: see section 7.1.2 of [Estimation for Quadrotors](https://www.overleaf.com/read/vymfngphcccj) for a refresher on a good non-linear complimentary filter for attitude using quaternions.**
 
+**Answer:**
+
+There are several ways to go about this, including:
+
+* create a rotation matrix based on your current Euler angles, integrate that, convert back to Euler angles OR
+* use the Quaternion<float> class, which has a handy FromEuler123_RPY function for creating a quaternion from Euler Roll/PitchYaw (Quaternion<float> also has a IntegrateBodyRate function, though this uses quaternions, not Euler angles)
+  
+I implemented the first way. The rotation matrix, from body frame to world frame, is the same as the one implemented in the control project. This rotation matrix converts gyro data into wuler angles (world frame)
+
+$$
+\begin{pmatrix} \dot{\phi} \\ \dot{\theta} \\ \dot{\psi}\end{pmatrix} = \begin{pmatrix} 1 & \sin{\phi}\tan{\theta} & \cos{\phi}\tan{\theta} \\ 0 & \cos{\phi} & -\sin{\phi} \\ 0 & \sin{\phi}\sec{\theta} & \cos{\phi}\sec{\theta} \end{pmatrix} \times \begin{pmatrix} p \\ q \\ r \end{pmatrix}
+$$
+
+where $\sec{\theta} = \frac{1}{\cos{\theta}}$
+
+a_dot represents a 3-element vector ($\dot \phi, \dot \theta, \dot \psi$). 
+
+Then, we integrate to obtain the predictions.
+
+![sim](assets/simulation7.png)
+
 
 ### Step 3: Prediction Step ###
 
 In this next step you will be implementing the prediction step of your filter.
 
-
 1. Run scenario `08_PredictState`.  This scenario is configured to use a perfect IMU (only an IMU). Due to the sensitivity of double-integration to attitude errors, we've made the accelerometer update very insignificant (`QuadEstimatorEKF.attitudeTau = 100`).  The plots on this simulation show element of your estimated state and that of the true state.  At the moment you should see that your estimated state does not follow the true state.
 
-2. In `QuadEstimatorEKF.cpp`, implement the state prediction step in the `PredictState()` functon. If you do it correctly, when you run scenario `08_PredictState` you should see the estimator state track the actual state, with only reasonably slow drift, as shown in the figure below:
+2. In `QuadEstimatorEKF.cpp`, implement the state prediction step in the `PredictState()` function. If you do it correctly, when you run scenario `08_PredictState` you should see the estimator state track the actual state, with only reasonably slow drift, as shown in the figure below:
 
 ![predict drift](images/predict-slow-drift.png)
 
@@ -157,6 +207,19 @@ Another set of bad examples is shown below for having a `QVelXYStd` too large (f
 ***Success criteria:*** *This step doesn't have any specific measurable criteria being checked.*
 
 
+**Comments**
+
+* Scenario `08_PredictState` : in `QuadEstimatorEKF.cpp`, we implemented the state prediction step in the `PredictState()` function.
+Note that we use `attitude.Rotate_BtoI(<V3F>)` to rotate the acceleration from body frame to inertial frame (`V3F acc_world = attitude.Rotate_BtoI(accel)`)
+
+![sim](assets/simulation8.png)
+
+* scenario `09_PredictionCov`: 
+See GetRbgPrime() for the derivative calculations of the body-to-global rotation matrix
+
+![sim](assets/simulation9.png)
+
+
 ### Step 4: Magnetometer Update ###
 
 Up until now we've only used the accelerometer and gyro for our state estimation.  In this step, you will be adding the information from the magnetometer to improve your filter's performance in estimating the vehicle's heading.
@@ -178,6 +241,14 @@ Up until now we've only used the accelerometer and gyro for our state estimation
 **Hint: see section 7.3.2 of [Estimation for Quadrotors](https://www.overleaf.com/read/vymfngphcccj) for a refresher on the magnetometer update.**
 
 
+**Comments**
+
+* `QYawStd` = .08 is a good value to approximately capture the magnitude of the drift
+*  I could maintain an error < 0.1 rad in yaw for > 10 s
+
+![sim](assets/simulation10.png)
+
+
 ### Step 5: Closed Loop + GPS Update ###
 
 1. Run scenario `11_GPSUpdate`.  At the moment this scenario is using both an ideal estimator and and ideal IMU.  Even with these ideal elements, watch the position and velocity errors (bottom right). As you see they are drifting away, since GPS update is not yet implemented.
@@ -185,6 +256,7 @@ Up until now we've only used the accelerometer and gyro for our state estimation
 2. Let's change to using your estimator by setting `Quad.UseIdealEstimator` to 0 in `config/11_GPSUpdate.txt`.  Rerun the scenario to get an idea of how well your estimator work with an ideal IMU.
 
 3. Now repeat with realistic IMU by commenting out these lines in `config/11_GPSUpdate.txt`:
+
 ```
 #SimIMU.AccelStd = 0,0,0
 #SimIMU.GyroStd = 0,0,0
@@ -202,6 +274,17 @@ Up until now we've only used the accelerometer and gyro for our state estimation
 
 At this point, congratulations on having a working estimator!
 
+**Comments**
+
+We follow the section 7.3.1 to complete the method 'UpdateFromGPS'
+
+* We assume we get position and velocity from the GPS.  We considered using heading from the GPS, but this does not take into account the drone's orientation, only the direction of travel.  Hence we are removing it from the observation.
+* we calculate the measurement model
+* the partial derivative is the identity matrix, augmented with a vector of zeros for $\frac{\partial}{\partial x_{t,\phi}} h(x_t)$
+
+In the code, we update zFromX and hPrime in a single loop. 
+
+
 ### Step 6: Adding Your Controller ###
 
 Up to this point, we have been working with a controller that has been relaxed to work with an estimated state instead of a real state.  So now, you will see how well your controller performs and de-tune your controller accordingly.
@@ -216,6 +299,12 @@ Up to this point, we have been working with a controller that has been relaxed t
 
 ***Success criteria:*** *Your objective is to complete the entire simulation cycle with estimated position error of < 1m.*
 
+
+**Answers**
+
+The entire simulation cycle was completed with estimated position error of < 1m.*
+
+![sim11](assets/simulation11.png)
 
 ## Tips and Tricks ##
 
